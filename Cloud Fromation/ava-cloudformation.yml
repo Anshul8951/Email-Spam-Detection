@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: "AWS::Serverless-2016-10-31"
+Description: AWS Email Spam Detection CTSN
+Parameters:
+  EndPointName:
+    Type: String
+Resources:
+ S3BucketStoringEmailCloudFormation:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      BucketName: emailcloudformation-ava
+    DeletionPolicy: Retain
+ BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: '*'
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3BucketStoringEmailCloudFormation
+                - /*
+      Bucket: !Ref S3BucketStoringEmailCloudFormation
+ EmailLambdaCLoudFormation:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: emaillambdacloudformation-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSESFullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchEventsFullAccess
+      Path: /
+ LambdaFunctionEmail:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      FunctionName: email_lambda_cloudformation
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      CodeUri: s3://storinglambdas-ava/sms_spam_classifier_utilities.zip
+      Description: LF1
+      MemorySize: 128
+      Timeout: 60
+      Role:
+       Fn::GetAtt:
+          - EmailLambdaCLoudFormation
+          - Arn
+      Environment:
+        Variables:
+          Region: us-east-1
+          ENDPOINT_NAME: !Ref EndPointName
+      Layers:
+      - arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python39:1
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref S3BucketStoringEmailCloudFormation
+            Events: s3:ObjectCreated:Put
+ SesRuleSet:
+  Type: 'AWS::SES::ReceiptRuleSet'
+ SesRule:
+  Type: 'AWS::SES::ReceiptRule'
+  Properties:
+    Rule:
+      Actions:
+        - S3Action:
+            BucketName: !Ref S3BucketStoringEmailCloudFormation
+      Recipients:
+        - 'anshul.agrawal@fighter.software'
+      Enabled: true
+      ScanEnabled: false
+    RuleSetName: !Ref SesRuleSet
